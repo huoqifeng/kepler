@@ -74,7 +74,11 @@ cross-build-linux-arm64:
 	+$(MAKE) _build_local GOOS=linux GOARCH=arm64
 .PHONY: cross-build-linux-arm64
 
-cross-build: cross-build-linux-amd64 cross-build-linux-arm64
+cross-build-linux-s390x:
+	+$(MAKE) _build_local GOOS=linux GOARCH=s390x
+.PHONY: cross-build-linux-s390x
+
+cross-build: cross-build-linux-amd64 cross-build-linux-arm64 cross-build-linux-s390x
 .PHONY: cross-build
 
 
@@ -101,9 +105,14 @@ build-containerized-cross-build-linux-arm64:
 	+$(MAKE) _build_containerized ARCH=arm64
 .PHONY: build-containerized-cross-build-linux-arm64
 
+build-containerized-cross-build-linux-s390x:
+	+$(MAKE) _build_containerized ARCH=s390x
+.PHONY: build-containerized-cross-build-linux-s390x
+
 build-containerized-cross-build:
 	+$(MAKE) build-containerized-cross-build-linux-amd64
 	+$(MAKE) build-containerized-cross-build-linux-arm64
+	+$(MAKE) build-containerized-cross-build-linux-s390x
 .PHONY: build-containerized-cross-build
 
 push-image:
