@@ -18,10 +18,11 @@ package source
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"strconv"
 	"strings"
+
+	"k8s.io/klog/v2"
 )
 
 const (
@@ -76,11 +77,11 @@ func readEventEnergy(eventName string) map[string]uint64 {
 			var data []byte
 
 			if data, err = os.ReadFile(path + energyFile); err != nil {
-				log.Println(err)
+				klog.V(3).Infoln(err)
 				continue
 			}
 			if e, err = strconv.ParseUint(strings.TrimSpace(string(data)), 10, 64); err != nil {
-				log.Println(err)
+				klog.V(3).Infoln(err)
 				continue
 			}
 			e /= 1000 /*mJ*/
@@ -114,8 +115,8 @@ func (r *PowerSysfs) GetEnergyFromPackage() (uint64, error) {
 	return getEnergy(packageEvent)
 }
 
-func (r *PowerSysfs) GetPackageEnergy() map[int]PackageEnergy {
-	packageEnergies := make(map[int]PackageEnergy)
+func (r *PowerSysfs) GetRAPLEnergy() map[int]RAPLEnergy {
+	packageEnergies := make(map[int]RAPLEnergy)
 
 	pkgEnergies := readEventEnergy(packageEvent)
 	coreEnergies := readEventEnergy(coreEvent)
@@ -128,7 +129,7 @@ func (r *PowerSysfs) GetPackageEnergy() map[int]PackageEnergy {
 		uncoreEnergy := uncoreEnergies[pkgID]
 		splits := strings.Split(pkgID, "-")
 		i, _ := strconv.Atoi(splits[len(splits)-1])
-		packageEnergies[i] = PackageEnergy{
+		packageEnergies[i] = RAPLEnergy{
 			Core:   coreEnergy,
 			DRAM:   dramEnergy,
 			Uncore: uncoreEnergy,

@@ -17,7 +17,7 @@ limitations under the License.
 package rapl
 
 import (
-	"fmt"
+	"k8s.io/klog/v2"
 
 	"github.com/sustainable-computing-io/kepler/pkg/power/rapl/source"
 )
@@ -31,37 +31,31 @@ type powerInterface interface {
 	GetEnergyFromUncore() (uint64, error)
 	// GetEnergyFromDram returns mJ in package
 	GetEnergyFromPackage() (uint64, error)
-	// GetPackageEnergy returns set of mJ per package
-	GetPackageEnergy() map[int]source.PackageEnergy
+	// GetRAPLEnergy returns set of mJ per RAPL components
+	GetRAPLEnergy() map[int]source.RAPLEnergy
 	StopPower()
 	IsSupported() bool
 }
 
 var (
-	dummyImpl                   = &source.PowerDummy{}
-	sysfsImpl                   = &source.PowerSysfs{}
-	msrImpl                     = &source.PowerMSR{}
-	estimateImpl                = &source.PowerEstimate{}
-	powerImpl    powerInterface = sysfsImpl
-	useMSR                      = false // it looks MSR on kvm or hyper-v is not working
+	dummyImpl                = &source.PowerDummy{}
+	sysfsImpl                = &source.PowerSysfs{}
+	msrImpl                  = &source.PowerMSR{}
+	powerImpl powerInterface = sysfsImpl
+	useMSR                   = false // it looks MSR on kvm or hyper-v is not working
 )
 
 func init() {
 	if sysfsImpl.IsSupported() /*&& false*/ {
-		fmt.Println("use sysfs to obtain power")
+		klog.V(1).Infoln("use sysfs to obtain power")
 		powerImpl = sysfsImpl
 	} else {
 		if msrImpl.IsSupported() && useMSR {
-			fmt.Println("use MSR to obtain power")
+			klog.V(1).Infoln("use MSR to obtain power")
 			powerImpl = msrImpl
 		} else {
-			if estimateImpl.IsSupported() {
-				fmt.Println("use power estimate to obtain power")
-				powerImpl = estimateImpl
-			} else {
-				fmt.Println("power not supported")
-				powerImpl = dummyImpl
-			}
+			klog.V(1).Infoln("power not supported")
+			powerImpl = dummyImpl
 		}
 	}
 }
@@ -82,8 +76,8 @@ func GetEnergyFromPackage() (uint64, error) {
 	return powerImpl.GetEnergyFromPackage()
 }
 
-func GetPackageEnergy() map[int]source.PackageEnergy {
-	return powerImpl.GetPackageEnergy()
+func GetRAPLEnergy() map[int]source.RAPLEnergy {
+	return powerImpl.GetRAPLEnergy()
 }
 
 func StopPower() {

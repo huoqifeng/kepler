@@ -9,6 +9,9 @@ OUTPUT_DIR :=_output
 CROSS_BUILD_BINDIR :=$(OUTPUT_DIR)/bin
 FROM_SOURCE :=false
 ARCH :=$(shell uname -m |sed -e "s/x86_64/amd64/" |sed -e "s/aarch64/arm64/")
+GIT_VERSION     := $(shell git describe --dirty --tags --match='v*')
+VERSION         ?= $(GIT_VERSION)
+LDFLAGS         := "-w -s -X 'github.com/sustainable-computing-io/kepler/pkg/version.Version=$(VERSION)'"
 
 ifdef IMAGE_REPO
 	IMAGE_REPO := $(IMAGE_REPO)
@@ -43,10 +46,10 @@ endif
 
 GO_LD_FLAGS := $(GC_FLAGS) -ldflags "-X $(LD_FLAGS)" $(CFLAGS)
 
-GO_BUILD_TAGS := 'include_gcs include_oss containers_image_openpgp gssapi providerless netgo osusergo'
+GO_BUILD_TAGS := 'include_gcs include_oss containers_image_openpgp gssapi providerless netgo osusergo gpu'
 ifneq ($(shell command -v ldconfig),)
   ifneq ($(shell ldconfig -p|grep bcc),)
-     GO_BUILD_TAGS = 'include_gcs include_oss containers_image_openpgp gssapi providerless netgo osusergo bcc'
+     GO_BUILD_TAGS = 'include_gcs include_oss containers_image_openpgp gssapi providerless netgo osusergo gpu bcc'
   endif
 endif
 
@@ -64,7 +67,7 @@ tidy-vendor:
 _build_local: format
 	@mkdir -p "$(CROSS_BUILD_BINDIR)/$(GOOS)_$(GOARCH)"
 	+@GOOS=$(GOOS) GOARCH=$(GOARCH) go build -tags ${GO_BUILD_TAGS} \
-		-o $(CROSS_BUILD_BINDIR)/$(GOOS)_$(GOARCH)/kepler ./cmd/exporter.go
+		-o $(CROSS_BUILD_BINDIR)/$(GOOS)_$(GOARCH)/kepler -ldflags $(LDFLAGS) ./cmd/exporter.go
 
 cross-build-linux-amd64:
 	+$(MAKE) _build_local GOOS=linux GOARCH=amd64
@@ -110,12 +113,12 @@ push-image:
 	$(CTR_CMD) push $(IMAGE_REPO):$(IMAGE_TAG)
 .PHONY: push-image
 
-multi-arch-image-base:
-	docker pull --platform=linux/s390x quay.io/sustainable_computing_io/kepler_base:latest-s390x
-    docker pull --platform=linux/amd64 quay.io/sustainable_computing_io/kepler_base:latest-amd64
-    docker manifest create quay.io/sustainable_computing_io/kepler_base:latest quay.io/sustainable_computing_io/kepler_base:latest-s390x quay.io/sustainable_computing_io/kepler_base:latest-amd64 quay.io/sustainable_computing_io/kepler_base:latest-arm64
-    docker manifest annotate --arch s390x quay.io/sustainable_computing_io/kepler_base:latest quay.io/sustainable_computing_io/kepler_base:latest-s390x
-    docker push quay.io/sustainable_computing_io/kepler_base:latest
+multi-arch-image-base:	
+	$(CTR_CMD) pull --platform=linux/s390x quay.io/sustainable_computing_io/kepler_base:latest-s390x; \
+	$(CTR_CMD) pull --platform=linux/amd64 quay.io/sustainable_computing_io/kepler_base:latest-amd64; \
+	$(CTR_CMD) manifest create quay.io/sustainable_computing_io/kepler_base:latest quay.io/sustainable_computing_io/kepler_base:latest-s390x quay.io/sustainable_computing_io/kepler_base:latest-amd64 quay.io/sustainable_computing_io/kepler_base:latest-arm64; \
+	$(CTR_CMD) manifest annotate --arch s390x quay.io/sustainable_computing_io/kepler_base:latest quay.io/sustainable_computing_io/kepler_base:latest-s390x; \
+	$(CTR_CMD) push quay.io/sustainable_computing_io/kepler_base:latest
 .PHONY: multi-arch-image-base
 
 # for testsuite
@@ -136,10 +139,22 @@ ginkgo-set: tidy-vendor
 	  cp $(GOBIN)/ginkgo $(ENVTEST_ASSETS_DIR)/ginkgo)
 	
 test: ginkgo-set tidy-vendor
-	@go test $(GO_BUILD_FLAGS) ./... --race --bench=. -cover --count=1 --vet=all
+	@go test -tags $(GO_BUILD_TAGS) ./... --race --bench=. -cover --count=1 --vet=all
 
 test-verbose: ginkgo-set tidy-vendor
-	@go test $(GO_BUILD_FLAGS) -covermode=atomic -coverprofile=coverage.out -v ./... --race --bench=. -cover --count=1 --vet=all
+	@go test -tags $(GO_BUILD_TAGS) -covermode=atomic -coverprofile=coverage.out -v ./... --race --bench=. -cover --count=1 --vet=all
+
+test-mac-verbose: tidy-vendor
+	@go test ./... --race --bench=. -cover --count=1 --vet=all
+
+escapes_detect: tidy-vendor
+	@go build -tags $(GO_BUILD_TAGS) -gcflags="-m -l" ./... | grep "escapes to heap" || true
+
+set_govulncheck:
+	@go install golang.org/x/vuln/cmd/govulncheck@latest
+
+govulncheck: set_govulncheck tidy-vendor
+	@govulncheck -v ./... || true
 
 format:
 	gofmt -e -d -s -l -w pkg/ cmd/
@@ -166,7 +181,7 @@ cluster-clean: build-manifest
 .PHONY: cluster-clean
 
 cluster-deploy: cluster-clean
-	./hack/cluster-deploy.sh
+	BARE_METAL_NODE_ONLY=false ./hack/cluster-deploy.sh
 .PHONY: cluster-deploy
 
 cluster-sync:

@@ -20,9 +20,12 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strconv"
 
 	"golang.org/x/sys/unix"
+	"k8s.io/klog/v2"
 )
 
 const (
@@ -42,25 +45,61 @@ type config struct {
 
 var c config
 
-var (
-	EnabledEBPFCgroupID = false
-
-	EstimatorModel        = "" // auto-select
-	EstimatorSelectFilter = "" // no filter
-	CoreUsageMetric       = "curr_cpu_cycles"
-	DRAMUsageMetric       = "curr_cache_miss"
-	UncoreUsageMetric     = ""                // no metric (evenly divided)
-	GeneralUsageMetric    = "curr_cpu_cycles" // for uncategorized energy; pkg - core - uncore
+const (
+	defaultMetricValue = ""
 )
 
-// EnableEBPFCgroupID enables the eBPF code to collect cgroup id if the system has kernel version > 4.18
-func EnableEBPFCgroupID(enabled bool) {
-	fmt.Println("config EnabledEBPFCgroupID enabled: ", enabled)
-	fmt.Println("config getKernelVersion: ", getKernelVersion(c))
+var (
+	EnabledEBPFCgroupID          = false
+	ExposeHardwareCounterMetrics = true
+	EnabledGPU                   = false
+
+	EstimatorModel        = getConfig("ESTIMATOR_MODEL", defaultMetricValue)         // auto-select
+	EstimatorSelectFilter = getConfig("ESTIMATOR_SELECT_FILTER", defaultMetricValue) // no filter
+	CoreUsageMetric       = getConfig("CORE_USAGE_METRIC", CPUInstruction)
+	DRAMUsageMetric       = getConfig("DRAM_USAGE_METRIC", CacheMiss)
+	UncoreUsageMetric     = getConfig("UNCORE_USAGE_METRIC", defaultMetricValue) // no metric (evenly divided)
+	GeneralUsageMetric    = getConfig("GENERAL_USAGE_METRIC", CPUInstruction)    // for uncategorized energy; pkg - core - uncore
+
+	versionRegex = regexp.MustCompile(`^(\d+)\.(\d+).`)
+
+	ModelServerEndpoint = ""
+	configPath          = "/etc/config"
+)
+
+func getConfig(configKey, defaultValue string) (result string) {
+	result = string([]byte(defaultValue))
+	key := string([]byte(configKey))
+	configFile := filepath.Join(configPath, key)
+	value, err := os.ReadFile(configFile)
+	if err == nil {
+		result = bytes.NewBuffer(value).String()
+	} else {
+		strValue, present := os.LookupEnv(key)
+		if present {
+			result = strValue
+		}
+	}
+	return
+}
+
+// SetEnabledEBPFCgroupID enables the eBPF code to collect cgroup id if the system has kernel version > 4.18
+func SetEnabledEBPFCgroupID(enabled bool) {
+	klog.Infoln("using gCgroup ID in the BPF program:", enabled)
+	klog.Infoln("kernel version:", getKernelVersion(c))
 	if (enabled) && (getKernelVersion(c) >= cGroupIDMinKernelVersion) && (isCGroupV2(c)) {
 		EnabledEBPFCgroupID = true
 	}
-	fmt.Println("config set EnabledEBPFCgroupID to ", EnabledEBPFCgroupID)
+}
+
+// SetEnabledHardwareCounterMetrics enables the exposure of hardware counter metrics
+func SetEnabledHardwareCounterMetrics(enabled bool) {
+	ExposeHardwareCounterMetrics = enabled
+}
+
+// SetEnabledGPU enables the exposure of gpu metrics
+func SetEnabledGPU(enabled bool) {
+	EnabledGPU = true
 }
 
 func (c config) getUnixName() (unix.Utsname, error) {
@@ -77,17 +116,35 @@ func getKernelVersion(c Client) float32 {
 	utsname, err := c.getUnixName()
 
 	if err != nil {
-		fmt.Println("Failed to parse unix name")
+		klog.V(4).Infoln("Failed to parse unix name")
 		return -1
 	}
 	// per https://github.com/google/cadvisor/blob/master/machine/info.go#L164
 	kv := utsname.Release[:bytes.IndexByte(utsname.Release[:], 0)]
-	val, err := strconv.ParseFloat(string(kv[:4]), 32)
-	if err == nil {
-		return float32(val)
+
+	versionParts := versionRegex.FindStringSubmatch(string(kv))
+	if len(versionParts) < 2 {
+		klog.V(1).Infof("got invalid release version %q (expected format '4.3-1 or 4.3.2-1')\n", kv)
+		return -1
 	}
-	fmt.Println("Not able to parse kernel version, use -1 instead")
-	return -1
+	major, err := strconv.Atoi(versionParts[1])
+	if err != nil {
+		klog.V(1).Infof("got invalid release major version %q\n", major)
+		return -1
+	}
+
+	minor, err := strconv.Atoi(versionParts[2])
+	if err != nil {
+		klog.V(1).Infof("got invalid release minor version %q\n", minor)
+		return -1
+	}
+
+	v, err := strconv.ParseFloat(fmt.Sprintf("%d.%d", major, minor), 32)
+	if err != nil {
+		klog.V(1).Infof("parse %d.%d got issue: %v", major, minor, err)
+		return -1
+	}
+	return float32(v)
 }
 
 func isCGroupV2(c Client) bool {
@@ -107,4 +164,8 @@ func GetCGroupVersion() int {
 func SetEstimatorConfig(modelName, selectFilter string) {
 	EstimatorModel = modelName
 	EstimatorSelectFilter = selectFilter
+}
+
+func SetModelServerEndpoint(serverEndpoint string) {
+	ModelServerEndpoint = serverEndpoint
 }

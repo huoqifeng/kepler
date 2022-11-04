@@ -42,8 +42,7 @@ func SearchByContainerID(topFolder, containerID string) string {
 	return ""
 }
 
-func ReadUInt64(path, name string) (uint64, error) {
-	fileName := filepath.Join(path, name)
+func ReadUInt64(fileName string) (uint64, error) {
 	value, err := os.ReadFile(fileName)
 	if err != nil {
 		return 0, err
@@ -51,9 +50,8 @@ func ReadUInt64(path, name string) (uint64, error) {
 	return strconv.ParseUint(strings.TrimSpace(string(value)), 10, 64)
 }
 
-func ReadKV(path, name string) (map[string]interface{}, error) {
+func ReadKV(fileName string) (map[string]interface{}, error) {
 	values := make(map[string]interface{})
-	fileName := filepath.Join(path, name)
 	f, err := os.Open(fileName)
 	if err != nil {
 		return values, err
@@ -74,9 +72,8 @@ func ReadKV(path, name string) (map[string]interface{}, error) {
 	return values, sc.Err()
 }
 
-func ReadLineKEqualToV(path, name string) (map[string]interface{}, error) {
+func ReadLineKEqualToV(fileName string) (map[string]interface{}, error) {
 	values := make(map[string]interface{})
-	fileName := filepath.Join(path, name)
 	f, err := os.Open(fileName)
 	if err != nil {
 		return values, err

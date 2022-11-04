@@ -1,10 +1,14 @@
 <img align="right" width="250px" src="https://user-images.githubusercontent.com/17484350/138557170-d8079b94-a517-4366-ade8-8d473e3f3f1d.jpg">
 
 ![GitHub Workflow Status (event)](https://img.shields.io/github/workflow/status/sustainable-computing-io/kepler/Unit%20test?label=CI)
-![Coverage](https://img.shields.io/badge/Coverage-76.5%25-brightgreen)
+![Coverage](https://img.shields.io/badge/Coverage-28.4%25-red)
+<!--
 [![GoDoc](https://godoc.org/github.com/kubernetes/kube-state-metrics?status.svg)](https://godoc.org/github.com/kubernetes/kube-state-metrics)
+-->
 
 ![GitHub](https://img.shields.io/github/license/sustainable-computing-io/kepler)
+
+[![Twitter URL](https://img.shields.io/twitter/url/https/twitter.com/KeplerProject.svg?style=social&label=Follow%20%40KeplerProject)](https://twitter.com/KeplerProject)
 
 # kepler
 Kepler (Kubernetes Efficient Power Level Exporter) uses eBPF to probe energy related system stats and exports as Prometheus metrics
@@ -16,7 +20,7 @@ Kepler (Kubernetes Efficient Power Level Exporter) uses eBPF to probe energy rel
 [Open Source Summit NA 2022 talk](doc/OSS-NA22.pdf) and [demo](https://www.youtube.com/watch?v=P5weULiBl60)
 
 # Requirement
-Kernel 4.18+, Cgroup V2
+Kernel 4.18+
 
 # Installation and Configuration for Prometheus
 ## Prerequisites
@@ -26,7 +30,20 @@ Need access to a Kubernetes cluster.
 Deploying the Kepler exporter as a daemonset to run on all nodes. The following deployment will also create a service listening on
 port 9102.
 ```
-# kubectl create -f manifests/kubernetes/deployment.yaml
+# build manifests file for VM+Baremetal and Baremetal only
+# manifests are created in  _output/manifests/kubernetes/generated/ by default
+# kubectl v1.21.0 is minimum version that support build manifest
+# make build-manifest
+```
+
+if you are running with Baremetal only
+```
+kubectl create -f _output/manifests/kubernetes/generated/bm/deployment.yaml
+```
+
+if you are running with Baremetal and/or VM
+```
+kubectl create -f _output/manifests/kubernetes/generated/vm/deployment.yaml
 ```
 
 ## Deploy the Prometheus operator and the whole monitoring stack

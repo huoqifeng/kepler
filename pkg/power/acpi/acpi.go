@@ -18,13 +18,14 @@ package acpi
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"k8s.io/klog/v2"
 )
 
 const (
@@ -87,7 +88,7 @@ func (a *ACPI) Run() {
 						}
 						a.mu.Unlock()
 					} else {
-						log.Fatal(err)
+						klog.Fatal(err)
 					}
 				}
 
@@ -114,7 +115,7 @@ func (a *ACPI) GetCPUCoreFrequency() map[int32]uint64 {
 func getCPUCoreFrequency() map[int32]uint64 {
 	files, err := os.ReadDir(freqPathDir)
 	if err != nil {
-		log.Fatal(err)
+		klog.Fatal(err)
 	}
 
 	ch := make(chan []uint64)
@@ -141,7 +142,7 @@ func getCPUCoreFrequency() map[int32]uint64 {
 				cpuCoreFrequency[int32(val[0])] = val[1]
 			}
 		case <-time.After(1 * time.Minute):
-			log.Println("timeout reading cpu core frequency files")
+			klog.V(1).Infoln("timeout reading cpu core frequency files")
 		}
 	}
 
@@ -174,14 +175,14 @@ func getPowerFromSensor() (map[string]float64, error) {
 		path := fmt.Sprintf(powerPath, i)
 		data, err := os.ReadFile(path)
 		if err != nil {
-			return power, err
+			break
 		}
 		// currPower is in microWatt
 		currPower, err := strconv.ParseUint(strings.TrimSpace(string(data)), 10, 64)
 		if err == nil {
 			power[fmt.Sprintf("%s%d", sensorIDPrefix, i)] = float64(currPower) / 1000 /*miliWatts*/
 		} else {
-			log.Fatal(err)
+			return power, err
 		}
 	}
 

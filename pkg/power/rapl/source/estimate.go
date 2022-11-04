@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/jszwec/csvutil"
+	"k8s.io/klog/v2"
 )
 
 type PowerEstimate struct{}
@@ -57,6 +58,12 @@ type CPUModelData struct {
 }
 
 func GetCPUArchitecture() (string, error) {
+	// check if there is a CPU architecture override
+	cpuArchOverride := os.Getenv("CPU_ARCH_OVERRIDE")
+	if len(cpuArchOverride) > 0 {
+		klog.V(2).Infof("cpu arch override: %v\n", cpuArchOverride)
+		return cpuArchOverride, nil
+	}
 	output, err := exec.Command("archspec", "cpu").Output()
 	if err != nil {
 		return "", err
@@ -127,17 +134,17 @@ func getCPUPowerEstimate(cpu string) (perThreadMinPowerEstimate, perThreadMaxPow
 func (r *PowerEstimate) IsSupported() bool {
 	cpu, err := GetCPUArchitecture()
 	if err != nil {
-		fmt.Printf("no cpu info: %v\n", err)
+		klog.V(2).Infof("no cpu info: %v\n", err)
 		return false
 	}
 	dramInGB, err = getDram()
 	if err != nil {
-		fmt.Printf("no dram info: %v\n", err)
+		klog.V(2).Infof("no dram info: %v\n", err)
 		return false
 	}
 	perThreadMinPowerEstimate, perThreadMaxPowerEstimate, perGBPowerEstimate, err = getCPUPowerEstimate(cpu)
 	startTime = time.Now()
-	fmt.Printf("cpu architecture %v, dram in GB %v\n", cpu, dramInGB)
+	klog.V(4).Infof("cpu architecture %v, dram in GB %v\n", cpu, dramInGB)
 	return err == nil
 }
 
@@ -165,15 +172,15 @@ func (r *PowerEstimate) GetEnergyFromUncore() (uint64, error) {
 }
 
 func (r *PowerEstimate) GetEnergyFromPackage() (uint64, error) {
-	return 0, nil
+	return r.GetEnergyFromCore()
 }
 
 // No package information, consider as 1 package
-func (r *PowerEstimate) GetPackageEnergy() map[int]PackageEnergy {
+func (r *PowerEstimate) GetRAPLEnergy() map[int]RAPLEnergy {
 	coreEnergy, _ := r.GetEnergyFromCore()
 	dramEnergy, _ := r.GetEnergyFromDram()
-	packageEnergies := make(map[int]PackageEnergy)
-	packageEnergies[0] = PackageEnergy{
+	packageEnergies := make(map[int]RAPLEnergy)
+	packageEnergies[0] = RAPLEnergy{
 		Core:   coreEnergy,
 		DRAM:   dramEnergy,
 		Uncore: 0,

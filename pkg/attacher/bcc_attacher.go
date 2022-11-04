@@ -28,9 +28,10 @@ import (
 
 	assets "github.com/sustainable-computing-io/kepler/pkg/bpfassets"
 	"github.com/sustainable-computing-io/kepler/pkg/config"
-	"github.com/sustainable-computing-io/kepler/pkg/model"
 
 	bpf "github.com/iovisor/gobpf/bcc"
+
+	"k8s.io/klog/v2"
 )
 
 type perfCounter struct {
@@ -46,22 +47,28 @@ type BpfModuleTables struct {
 }
 
 const (
-	CPUCycleLable       = "cpu_cycles"
-	CPUInstructionLable = "cpu_instr"
-	CacheMissLabel      = "cache_miss"
+	CPUCycleLable       = config.CPUCycle
+	CPUInstructionLabel = config.CPUInstruction
+	CacheMissLabel      = config.CacheMiss
 )
 
 var (
 	Counters = map[string]perfCounter{
 		CPUCycleLable:       {unix.PERF_TYPE_HARDWARE, unix.PERF_COUNT_HW_CPU_CYCLES, true},
-		CPUInstructionLable: {unix.PERF_TYPE_HARDWARE, unix.PERF_COUNT_HW_INSTRUCTIONS, true},
+		CPUInstructionLabel: {unix.PERF_TYPE_HARDWARE, unix.PERF_COUNT_HW_INSTRUCTIONS, true},
 		CacheMissLabel:      {unix.PERF_TYPE_HARDWARE, unix.PERF_COUNT_HW_CACHE_MISSES, true},
 	}
 	EnableCPUFreq = true
 )
 
-func loadModule(objProg []byte, options []string) (*bpf.Module, error) {
-	m := bpf.NewModule(string(objProg), options)
+func loadModule(objProg []byte, options []string) (m *bpf.Module, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("failed to attach the bpf program: %v", err)
+			klog.Infoln(err)
+		}
+	}()
+	m = bpf.NewModule(string(objProg), options)
 	// TODO make all entrypoints yaml-declarable
 	sched_switch, err := m.LoadTracepoint("sched_switch")
 	if err != nil {
@@ -77,14 +84,11 @@ func loadModule(objProg []byte, options []string) (*bpf.Module, error) {
 		if t == nil {
 			return nil, fmt.Errorf("failed to find perf array: %s", arrayName)
 		}
-		model.SetBMCoeff()
 		perfErr := openPerfEvent(t, counter.evType, counter.evConfig)
 		if perfErr != nil {
 			// some hypervisors don't expose perf counters
-			fmt.Printf("failed to attach perf event %s: %v\n", arrayName, err)
+			klog.Infof("failed to attach perf event %s: %v\n", arrayName, perfErr)
 			counter.enabled = false
-			// if perf counters are not available, it is likely running on a VM
-			model.SetVMCoeff()
 		}
 	}
 	return m, err
@@ -106,12 +110,12 @@ func AttachBPFAssets() (*BpfModuleTables, error) {
 	}
 	m, err := loadModule(objProg, options)
 	if err != nil {
-		fmt.Printf("failed to attach perf module with options %v: %v\n", options, err)
+		klog.Warningf("failed to attach perf module with options %v: %v, Hardware counter related metrics does not exist\n", options, err)
 		options = []string{"-DNUM_CPUS=" + strconv.Itoa(runtime.NumCPU())}
 		EnableCPUFreq = false
 		m, err = loadModule(objProg, options)
 		if err != nil {
-			fmt.Printf("failed to attach perf module with options %v: %v\n", options, err)
+			klog.Infof("failed to attach perf module with options %v: %v, not able to load eBPF modules\n", options, err)
 			// at this time, there is not much we can do with the eBPF module
 			return nil, err
 		}
@@ -124,6 +128,8 @@ func AttachBPFAssets() (*BpfModuleTables, error) {
 	bpfModules.Table = table
 	bpfModules.TimeTable = timeTable
 
+	klog.Infof("Successfully load eBPF module with option: %s", options)
+
 	return bpfModules, nil
 }
 
@@ -134,6 +140,12 @@ func DetachBPFModules(bpfModules *BpfModuleTables) {
 
 func GetEnabledCounters() []string {
 	var metrics []string
+	klog.V(5).Infof("hardeware counter metr %t", config.ExposeHardwareCounterMetrics)
+	if !config.ExposeHardwareCounterMetrics {
+		klog.V(5).Info("hardeware counter metrics not enabled")
+		return metrics
+	}
+
 	for metric, counter := range Counters {
 		if counter.enabled {
 			metrics = append(metrics, metric)

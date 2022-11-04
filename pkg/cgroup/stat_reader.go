@@ -16,6 +16,12 @@ limitations under the License.
 
 package cgroup
 
+import (
+	"path/filepath"
+
+	"github.com/sustainable-computing-io/kepler/pkg/config"
+)
+
 var MemUsageFiles = []string{
 	"memory.usage_in_bytes",          // hierarchy: system + kernel
 	"memory.kmem.usage_in_bytes",     // hierarchy: kernel
@@ -35,32 +41,32 @@ var ioUsageFiles = []string{
 }
 
 var standardMetricName = map[string][]CgroupFSReadMetric{
-	"cgroupfs_memory_usage_bytes": {
+	config.CgroupfsMemory: {
 		{Name: "memory.current", Converter: DefaultConverter},
 		{Name: "memory.usage_in_bytes", Converter: DefaultConverter},
 	},
-	"cgroupfs_kernel_memory_usage_bytes": {
+	config.CgroupfsKernelMemory: {
 		{Name: "memory.kmem.usage_in_bytes", Converter: DefaultConverter},
 	},
-	"cgroupfs_tcp_memory_usage_bytes": {
+	config.CgroupfsTCPMemory: {
 		{Name: "memory.kmem.tcp.usage_in_bytes", Converter: DefaultConverter},
 	},
-	"cgroupfs_cpu_usage_us": {
+	config.CgroupfsCPU: {
 		{Name: "cpuacct.usage", Converter: NanoToMicroConverter},
 		{Name: "usage_usec", Converter: DefaultConverter},
 	},
-	"cgroupfs_system_cpu_usage_us": {
+	config.CgroupfsSystemCPU: {
 		{Name: "cpuacct.usage_sys", Converter: NanoToMicroConverter},
 		{Name: "system_usec", Converter: DefaultConverter},
 	},
-	"cgroupfs_user_cpu_usage_us": {
+	config.CgroupfsUserCPU: {
 		{Name: "cpuacct.usage_user", Converter: NanoToMicroConverter},
 		{Name: "user_usec", Converter: DefaultConverter},
 	},
-	"cgroupfs_ioread_bytes": {
+	config.CgroupfsReadIO: {
 		{Name: "rbytes", Converter: DefaultConverter},
 	},
-	"cgroupfs_iowrite_bytes": {
+	config.CgroupfsWriteIO: {
 		{Name: "wbytes", Converter: DefaultConverter},
 	},
 }
@@ -76,7 +82,8 @@ type MemoryStatReader struct {
 func (s MemoryStatReader) Read() map[string]interface{} {
 	values := make(map[string]interface{})
 	for _, usageFile := range MemUsageFiles {
-		value, err := ReadUInt64(s.Path, usageFile)
+		fileName := filepath.Join(s.Path, usageFile)
+		value, err := ReadUInt64(fileName)
 		if err == nil {
 			values[usageFile] = value
 		}
@@ -93,12 +100,14 @@ func (s CPUStatReader) Read() map[string]interface{} {
 	for _, usageFile := range cpuUsageFiles {
 		switch usageFile {
 		case "cpu.stat":
-			kv, err := ReadKV(s.Path, usageFile)
+			fileName := filepath.Join(s.Path, usageFile)
+			kv, err := ReadKV(fileName)
 			if err == nil {
 				return kv
 			}
 		default:
-			value, err := ReadUInt64(s.Path, usageFile)
+			fileName := filepath.Join(s.Path, usageFile)
+			value, err := ReadUInt64(fileName)
 			if err == nil {
 				values[usageFile] = value
 			}
@@ -115,7 +124,8 @@ func (s IOStatReader) Read() map[string]interface{} {
 	values := make(map[string]interface{})
 	for _, usageFile := range ioUsageFiles {
 		if usageFile == "io.stat" {
-			kv, err := ReadLineKEqualToV(s.Path, usageFile)
+			fileName := filepath.Join(s.Path, usageFile)
+			kv, err := ReadLineKEqualToV(fileName)
 			if err == nil {
 				return kv
 			}

@@ -23,18 +23,50 @@ source cluster-up/common.sh
 
 CLUSTER_PROVIDER=${CLUSTER_PROVIDER:-kubernetes}
 MANIFESTS_OUT_DIR=${MANIFESTS_OUT_DIR:-"_output/manifests/${CLUSTER_PROVIDER}/generated"}
+BARE_METAL_NODE_ONLY=${BARE_METAL_NODE_ONLY:-true}
 
 function main() {
     [ ! -d "${MANIFESTS_OUT_DIR}" ] && echo "Directory ${MANIFESTS_OUT_DIR} DOES NOT exists. Run make generate first."
+
+    if [ "$BARE_METAL_NODE_ONLY" = true ] 
+    then
+        echo "Deploy with Allowing Baremetal as infrastructure"
+        cp ${MANIFESTS_OUT_DIR}/vm/deployment.yaml ${MANIFESTS_OUT_DIR}/
+    else
+        echo "Deploy with Allowing Baremetal and virtual machine as infrastructure"
+        cp ${MANIFESTS_OUT_DIR}/bm/deployment.yaml ${MANIFESTS_OUT_DIR}/
+    fi
     
     echo "Deploying manifests..."
 
     # Ignore errors because some clusters might not have prometheus operator
-    kubectl apply -f ${MANIFESTS_OUT_DIR} || true
-    kubectl rollout status daemonset kepler-exporter -n kepler --timeout 60s
+    echo "Deploying with image:"
+    cat ${MANIFESTS_OUT_DIR}/deployment.yaml | grep "image:"
 
-    echo "Check the logs of the kepler-exporter with:"
-    echo "kubectl -n kepler logs daemonset.apps/kepler-exporter"
+    kubectl apply -f ${MANIFESTS_OUT_DIR} || true
+    
+    # round for 3 times and each for 60s
+    # check if the rollout status is running
+    deploy_status=1
+    for i in 1 2 3
+    do
+        echo "check deployment status for round $i"
+        kubectl rollout status daemonset kepler-exporter -n kepler --timeout 60s
+        #check rollout status
+        if [ $? -eq 0 ]
+        then
+            deploy_status=0
+            break
+        fi
+    done 
+    # if deployment in error
+    if test $[deploy_status] -eq 1
+    then
+        echo "Check the status of the kepler-exporter"
+        kubectl -n kepler describe daemonset.apps/kepler-exporter
+        echo "Check the logs of the kepler-exporter"
+        kubectl -n kepler logs daemonset.apps/kepler-exporter
+    fi
 }
 
 main "$@"
